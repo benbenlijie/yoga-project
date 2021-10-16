@@ -3,7 +3,7 @@ import torch
 from torchvision.utils import make_grid
 from base import BaseTrainer
 from utils import inf_loop, MetricTracker
-
+import pysnooper
 
 class Trainer(BaseTrainer):
     """
@@ -30,6 +30,7 @@ class Trainer(BaseTrainer):
         self.train_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
         self.valid_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
 
+    # @pysnooper.snoop(depth=2, watch=("output.shape", "target.shape"))
     def _train_epoch(self, epoch):
         """
         Training logic for an epoch
@@ -39,11 +40,13 @@ class Trainer(BaseTrainer):
         """
         self.model.train()
         self.train_metrics.reset()
-        for batch_idx, (data, target) in enumerate(self.data_loader):
-            data, target = data.to(self.device), target.to(self.device)
+        for batch_idx, data_items in enumerate(self.data_loader):
+            inputs = data_items["skeleton"].to(self.device)
+            
+            target = data_items["class"].to(self.device)
 
             self.optimizer.zero_grad()
-            output = self.model(data)
+            output = self.model(inputs, target)
             loss = self.criterion(output, target)
             loss.backward()
             self.optimizer.step()
@@ -58,7 +61,7 @@ class Trainer(BaseTrainer):
                     epoch,
                     self._progress(batch_idx),
                     loss.item()))
-                self.writer.add_image('input', make_grid(data.cpu(), nrow=8, normalize=True))
+                self.writer.add_image('input', make_grid(inputs.cpu(), nrow=8, normalize=True))
 
             if batch_idx == self.len_epoch:
                 break
@@ -82,21 +85,25 @@ class Trainer(BaseTrainer):
         self.model.eval()
         self.valid_metrics.reset()
         with torch.no_grad():
-            for batch_idx, (data, target) in enumerate(self.valid_data_loader):
-                data, target = data.to(self.device), target.to(self.device)
+            for batch_idx, data_items in enumerate(self.valid_data_loader):
+                inputs = data_items["skeleton"].to(self.device)
 
-                output = self.model(data)
+                target = data_items["class"].to(self.device)
+            
+                output = self.model(inputs, target)
                 loss = self.criterion(output, target)
 
                 self.writer.set_step((epoch - 1) * len(self.valid_data_loader) + batch_idx, 'valid')
                 self.valid_metrics.update('loss', loss.item())
                 for met in self.metric_ftns:
                     self.valid_metrics.update(met.__name__, met(output, target))
-                self.writer.add_image('input', make_grid(data.cpu(), nrow=8, normalize=True))
+                self.writer.add_image('input', make_grid(inputs.cpu(), nrow=8, normalize=True))
 
         # add histogram of model parameters to the tensorboard
-        for name, p in self.model.named_parameters():
-            self.writer.add_histogram(name, p, bins='auto')
+        # print("len named_parameters: ", len(list(self.model.named_parameters())))
+        # for name, p in self.model.named_parameters():
+        #     print("p.shape:", name, p.shape)
+        #     self.writer.add_histogram(name, p, bins='auto')
         return self.valid_metrics.result()
 
     def _progress(self, batch_idx):

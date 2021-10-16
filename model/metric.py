@@ -1,6 +1,7 @@
 import torch
+import pysnooper
 
-
+# @pysnooper.snoop(watch=("pred.shape", "pred", "target", "correct"))
 def accuracy(output, target):
     with torch.no_grad():
         pred = torch.argmax(output, dim=1)

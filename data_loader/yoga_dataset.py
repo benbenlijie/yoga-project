@@ -4,6 +4,13 @@ from sklearn import preprocessing
 import json
 from PIL import Image
 import numpy as np
+from torchvision import transforms
+from easydict import EasyDict as edict
+import mediapipe as mp
+mp_pose = mp.solutions.pose
+mp_drawing = mp.solutions.drawing_utils 
+mp_drawing_styles = mp.solutions.drawing_styles
+
 
 class YogaDataset(Dataset):
     KEYPOINTS_NUM = 33
@@ -15,8 +22,13 @@ class YogaDataset(Dataset):
         self.df["class"] = self.le.transform(self.df["label"])
         self.need_img = need_img
         self.img_size = img_size
-        
-
+        self.class_num = len(self.le.classes_)
+        self.transform = transforms.Compose([
+            transforms.RandomRotation(10,),
+            transforms.RandomHorizontalFlip(0.5),
+            # transforms.RandomResizedCrop(size=(img_size[1], img_size[0])),
+            transforms.ToTensor()
+        ])
     
     def __len__(self):
         return len(self.df)
@@ -40,7 +52,37 @@ class YogaDataset(Dataset):
         # load class
         item_result["class"] = row["class"]
 
+        # one_hot
+        one_hot = np.zeros([self.class_num], dtype=np.long)
+        one_hot[row["class"]] = 1
+        item_result["one_hot"] = one_hot
+
+        # skeleton
+        skeleton = self.convertKeypoints2Img(item_result["keypoints"], self.img_size)
+        item_result["skeleton"] = self.transform(Image.fromarray(skeleton))
         return item_result
+    
+    @staticmethod
+    def convertKeypoints2Img(keypoints, img_size=(220, 144)):
+        landmark_list = edict({
+            "landmark": []
+        })
+        for [x, y] in keypoints:
+            mark = edict({
+                "x": x,
+                "y": y,
+                "HasField": lambda a: False
+            })
+            landmark_list.landmark.append(mark)
+        canvas = np.zeros((img_size[1], img_size[0], 3), dtype=np.uint8)
+        mp_drawing.draw_landmarks(
+            canvas, 
+            landmark_list,
+            mp_pose.POSE_CONNECTIONS,
+            landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style()
+        )
+        return canvas
+
 
 class YogaDatasetTriple(YogaDataset):
     def __init__(self, csv_file, need_img=False, img_size=(220, 144)):

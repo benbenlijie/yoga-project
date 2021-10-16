@@ -2,6 +2,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from base import BaseModel
 
+# import model defines
+from .model_mobilenet import MobileNetModel, ArcMarginProduct
 
 class MnistModel(BaseModel):
     def __init__(self, num_classes=10):

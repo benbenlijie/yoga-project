@@ -1,30 +1,32 @@
 {
-    "name": "Mnist_LeNet",
+    "name": "Yoga_Score_Net",
     "n_gpu": 1,
 
     "arch": {
-        "type": "MnistModel",
-        "args": {}
+        "type": "MobileNetModel",
+        "args": {"feature_dim": 256, "num_classes": 107, "easy_margin": true, "m": 0.1}
     },
     "data_loader": {
-        "type": "MnistDataLoader",
+        "type": "YogaDataLoader",
         "args":{
-            "data_dir": "data/",
+            "data_csv_file": "data_loader/dataset1.csv",
+            "need_img": false,
+            "img_size": [244, 244],
             "batch_size": 128,
             "shuffle": true,
-            "validation_split": 0.1,
+            "validation_split": 0.3,
             "num_workers": 2
         }
     },
     "optimizer": {
         "type": "Adam",
         "args":{
-            "lr": 0.001,
+            "lr": 0.005,
             "weight_decay": 0,
             "amsgrad": true
         }
     },
-    "loss": "nll_loss",
+    "loss": "crossentropy_loss",
     "metrics": [
         "accuracy", "top_k_acc"
     ],
