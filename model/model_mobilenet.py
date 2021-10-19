@@ -3,16 +3,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 from base import BaseModel
 import math
-from torchvision.models.mobilenetv3 import mobilenet_v3_large
+from torchvision.models.mobilenetv3 import mobilenet_v3_large, mobilenet_v3_small
 
 class MobileNetModel(BaseModel):
     def __init__(self, feature_dim, num_classes, s=30.0, m=0.5, 
-        easy_margin=False):
+        easy_margin=False, arc_margin=True):
         super().__init__()
         backbone = mobilenet_v3_large(True)
         dim_feature_backbone = 960
         self.feature_dim = feature_dim
         self.num_classes = num_classes
+        self.arc_margin = arc_margin
 
         self.features1 = nn.Sequential(
             backbone.features,
@@ -25,9 +26,29 @@ class MobileNetModel(BaseModel):
             nn.Dropout(0.5),
             nn.Linear(self.feature_dim, self.feature_dim),
         )
-        self.arc_margin = ArcMarginProduct(self.feature_dim, self.num_classes, s, m, easy_margin)
+        if arc_margin:
+            self.output_layer = ArcMarginProduct(self.feature_dim, self.num_classes, s, m, easy_margin)
+        else:
+            self.output_layer = nn.Linear(self.feature_dim, self.num_classes, bias=False)
 
-        for m in self.features2.modules():
+        self._initParam(self.features2.modules())
+        self._initParam(self.output_layer.modules())
+        
+    
+    def forward(self, x, target=None):
+        feature = self.features1(x)
+        feature = self.features2(feature)
+        
+        if target != None:
+            if self.arc_margin:
+                output = self.output_layer(feature, target)
+            else:
+                output = self.output_layer(feature)
+        
+        return output
+    
+    def _initParam(self, modules):
+        for m in modules:
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out')
                 if m.bias is not None:
@@ -37,15 +58,8 @@ class MobileNetModel(BaseModel):
                 nn.init.zeros_(m.bias)
             elif isinstance(m, nn.Linear):
                 nn.init.normal_(m.weight, 0, 0.01)
-                nn.init.zeros_(m.bias)
-    
-    def forward(self, x, target=None):
-        feature = self.features1(x)
-        feature = self.features2(feature)
-        
-        if target != None:
-            output = self.arc_margin(feature, target)
-        return output
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
 class ArcMarginProduct(BaseModel):
     def __init__(self, in_features, out_features, s=30.0, m=0.5, 

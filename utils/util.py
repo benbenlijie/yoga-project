@@ -4,6 +4,8 @@ import pandas as pd
 from pathlib import Path
 from itertools import repeat
 from collections import OrderedDict
+import mediapipe as mp
+import numpy as np
 
 
 def ensure_dir(dirname):
@@ -65,3 +67,12 @@ class MetricTracker:
 
     def result(self):
         return dict(self._data.average)
+
+def getSkeletonAdj(num_points=33):
+    
+    mp_pose = mp.solutions.pose
+    connections = list(mp_pose.POSE_CONNECTIONS)
+    adj = np.zeros((num_points, num_points), dtype=np.float32)
+    for a, b in connections:
+        adj[a, b] = adj[b, a] = 1
+    return torch.FloatTensor(adj)
