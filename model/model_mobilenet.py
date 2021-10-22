@@ -5,9 +5,10 @@ from base import BaseModel
 import math
 from torchvision.models.mobilenetv3 import mobilenet_v3_large, mobilenet_v3_small
 
+
 class MobileNetModel(BaseModel):
-    def __init__(self, feature_dim, num_classes, s=30.0, m=0.5, 
-        easy_margin=False, arc_margin=True):
+    def __init__(self, feature_dim, num_classes, s=30.0, m=0.5,
+                 easy_margin=False, arc_margin=True):
         super().__init__()
         backbone = mobilenet_v3_large(True)
         dim_feature_backbone = 960
@@ -21,10 +22,11 @@ class MobileNetModel(BaseModel):
             nn.Flatten(1),
         )
         self.features2 = nn.Sequential(
-            nn.Linear(dim_feature_backbone, self.feature_dim),
-            nn.Hardswish(inplace=True),
             nn.Dropout(0.5),
-            nn.Linear(self.feature_dim, self.feature_dim),
+            nn.Linear(dim_feature_backbone, self.feature_dim, bias=False),
+            # nn.Hardswish(inplace=True),
+            # nn.Dropout(0.5),
+            # nn.Linear(self.feature_dim, self.feature_dim),
         )
         if arc_margin:
             self.output_layer = ArcMarginProduct(self.feature_dim, self.num_classes, s, m, easy_margin)
@@ -33,20 +35,23 @@ class MobileNetModel(BaseModel):
 
         self._initParam(self.features2.modules())
         self._initParam(self.output_layer.modules())
-        
-    
+
     def forward(self, x, target=None):
         feature = self.features1(x)
         feature = self.features2(feature)
-        
-        if target != None:
-            if self.arc_margin:
-                output = self.output_layer(feature, target)
-            else:
-                output = self.output_layer(feature)
-        
+
+        if self.arc_margin:
+            output = self.output_layer(feature, target)
+        else:
+            output = self.output_layer(feature)
+
         return output
-    
+
+    def encode(self, x):
+        feature = self.features1(x)
+        feature = self.features2(feature)
+        return F.normalize(feature)
+
     def _initParam(self, modules):
         for m in modules:
             if isinstance(m, nn.Conv2d):
@@ -61,9 +66,23 @@ class MobileNetModel(BaseModel):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
+    def getWeightLoss(self):
+        if self.arc_margin:
+            return self.output_layer.getWeightLoss()
+        else:
+            return 0
+
+    def wantedNamedParameters(self):
+        named_parameter_pair = []
+        for name, p in self.named_parameters():
+            if "features2" in name or "output_layer" in name:
+                named_parameter_pair.append([name, p])
+        return named_parameter_pair
+
+
 class ArcMarginProduct(BaseModel):
-    def __init__(self, in_features, out_features, s=30.0, m=0.5, 
-        easy_margin=False):
+    def __init__(self, in_features, out_features, s=30.0, m=0.5,
+                 easy_margin=False):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -80,6 +99,8 @@ class ArcMarginProduct(BaseModel):
 
     def forward(self, feature, label):
         cosine = F.linear(F.normalize(feature), F.normalize(self.weight))
+        if label is None:
+            return cosine
         sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
         phi = cosine * self.cos_m - sine * self.sin_m
         if self.easy_margin:
@@ -91,4 +112,13 @@ class ArcMarginProduct(BaseModel):
         output = (one_hot * phi) + ((1.0 - one_hot) * cosine)
         output *= self.s
         return output
-        
+
+    def getWeightLoss(self):
+        norm_weight = F.normalize(self.weight)
+        pairwise_weight_cos = torch.mm(norm_weight, norm_weight.T)
+        pairwise_weight_cos = torch.where(pairwise_weight_cos > 0, pairwise_weight_cos,
+                                          torch.zeros_like(pairwise_weight_cos).to(pairwise_weight_cos.device))
+
+        weight_cos_loss = (torch.sum(pairwise_weight_cos) - self.out_features) / \
+                          (torch.count_nonzero(pairwise_weight_cos) - self.out_features)
+        return weight_cos_loss

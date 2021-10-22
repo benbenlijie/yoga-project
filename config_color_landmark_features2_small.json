@@ -1,0 +1,60 @@
+{
+    "name": "Yoga_Score_Net_color_landmark_features2_small",
+    "n_gpu": 1,
+
+    "arch": {
+        "type": "MobileNetModel",
+        "args": {
+            "feature_dim": 128, 
+            "num_classes": 107, 
+            "easy_margin": true, 
+            "m": 0.1,
+            "arc_margin": true
+        }
+    },
+    "data_loader": {
+        "type": "YogaDataLoader",
+        "args":{
+            "data_csv_file": "data_loader/dataset1.csv",
+            "need_img": false,
+            "img_size": [244, 244],
+            "color_landmark": true,
+            "batch_size": 256,
+            "shuffle": true,
+            "validation_split": 0.3,
+            "num_workers": 10
+        }
+    },
+    "optimizer": {
+        "type": "Adam",
+        "args":{
+            "lr": 0.01,
+            "weight_decay": 0,
+            "amsgrad": true
+        }
+    },
+    "loss": "crossentropy_loss",
+    "weight_loss_lambda": 10.0,
+    "metrics": [
+        "accuracy", "top_k_acc"
+    ],
+    "lr_scheduler": {
+        "type": "StepLR",
+        "args": {
+            "step_size": 50,
+            "gamma": 0.3
+        }
+    },
+    "trainer": {
+        "epochs": 150,
+
+        "save_dir": "/hpctmp/e0703350/projects/yoga-saved/",
+        "save_period": 1,
+        "verbosity": 2,
+        
+        "monitor": "min val_loss",
+        "early_stop": 0,
+
+        "tensorboard": true
+    }
+}

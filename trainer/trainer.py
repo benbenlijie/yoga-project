@@ -5,10 +5,12 @@ from base import BaseTrainer
 from utils import inf_loop, MetricTracker
 import pysnooper
 
+
 class Trainer(BaseTrainer):
     """
     Trainer class
     """
+
     def __init__(self, model, criterion, metric_ftns, optimizer, config, device,
                  data_loader, valid_data_loader=None, lr_scheduler=None, len_epoch=None):
         super().__init__(model, criterion, metric_ftns, optimizer, config)
@@ -42,12 +44,17 @@ class Trainer(BaseTrainer):
         self.train_metrics.reset()
         for batch_idx, data_items in enumerate(self.data_loader):
             inputs = data_items["skeleton"].to(self.device)
-            
+
             target = data_items["class"].to(self.device)
 
             self.optimizer.zero_grad()
             output = self.model(inputs, target)
             loss = self.criterion(output, target)
+            try:
+                lam = self.config.config.get("weight_loss_lambda", 1.0)
+                loss += self.model.getWeightLoss() * lam
+            finally:
+                pass
             loss.backward()
             self.optimizer.step()
 
@@ -55,13 +62,15 @@ class Trainer(BaseTrainer):
             self.train_metrics.update('loss', loss.item())
             for met in self.metric_ftns:
                 self.train_metrics.update(met.__name__, met(output, target))
+            if self.lr_scheduler is not None:
+                self.writer.add_scalar("lr", self.optimizer.param_groups[0]['lr'])
 
             if batch_idx % self.log_step == 0:
                 self.logger.debug('Train Epoch: {} {} Loss: {:.6f}'.format(
                     epoch,
                     self._progress(batch_idx),
                     loss.item()))
-                self.writer.add_image('input', make_grid(inputs.cpu(), nrow=8, normalize=True))
+                # self.writer.add_image('input', make_grid(inputs[:24].cpu(), nrow=8, normalize=True))
 
             if batch_idx == self.len_epoch:
                 break
@@ -69,10 +78,16 @@ class Trainer(BaseTrainer):
 
         if self.do_validation:
             val_log = self._valid_epoch(epoch)
-            log.update(**{'val_'+k : v for k, v in val_log.items()})
+            log.update(**{'val_' + k: v for k, v in val_log.items()})
 
         if self.lr_scheduler is not None:
-            self.lr_scheduler.step()
+            if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                log.update({"lr": self.optimizer.param_groups[0]['lr']})
+
+                self.lr_scheduler.step(loss)
+            else:
+                log.update({"lr": self.lr_scheduler.get_last_lr()[0]})
+                self.lr_scheduler.step()
         return log
 
     def _valid_epoch(self, epoch):
@@ -89,7 +104,7 @@ class Trainer(BaseTrainer):
                 inputs = data_items["skeleton"].to(self.device)
 
                 target = data_items["class"].to(self.device)
-            
+
                 output = self.model(inputs, target)
                 loss = self.criterion(output, target)
 
@@ -97,13 +112,12 @@ class Trainer(BaseTrainer):
                 self.valid_metrics.update('loss', loss.item())
                 for met in self.metric_ftns:
                     self.valid_metrics.update(met.__name__, met(output, target))
-                self.writer.add_image('input', make_grid(inputs.cpu(), nrow=8, normalize=True))
+            # self.writer.add_image('input', make_grid(inputs.cpu(), nrow=8, normalize=True))
 
         # add histogram of model parameters to the tensorboard
         # print("len named_parameters: ", len(list(self.model.named_parameters())))
-        # for name, p in self.model.named_parameters():
-        #     print("p.shape:", name, p.shape)
-        #     self.writer.add_histogram(name, p, bins='auto')
+        for name, p in self.model.wantedNamedParameters():  # print("p.shape:", name, p.shape)
+            self.writer.add_histogram(name, p, bins='auto')
         return self.valid_metrics.result()
 
     def _progress(self, batch_idx):

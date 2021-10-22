@@ -7,14 +7,53 @@ import numpy as np
 from torchvision import transforms
 from easydict import EasyDict as edict
 import mediapipe as mp
+from mediapipe.python.solutions.drawing_utils import DrawingSpec
+
 mp_pose = mp.solutions.pose
-mp_drawing = mp.solutions.drawing_utils 
+mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
 
+KEYPOINTS_COLOR_PANEL = [
+    (128,0,0),
+    (139,0,0),
+    (165,42,42),
+    (178,34,34),
+    (220,20,60),
+    (255,0,0),
+    (255,99,71),
+    (255,127,80),
+    (205,92,92),
+    (240,128,128),
+    (233,150,122),
+    (250,128,114),
+    (255,160,122),
+    (255,69,0),
+    (255,140,0),
+    (255,165,0),
+    (255,215,0),
+    (184,134,11),
+    (218,165,32),
+    (238,232,170),
+    (189,183,107),
+    (240,230,140),
+    (128,128,0),
+    (255,255,0),
+    (154,205,50),
+    (85,107,47),
+    (107,142,35),
+    (124,252,0),
+    (127,255,0),
+    (173,255,47),
+    (0,100,0),
+    (0,128,0),
+    (34,139,34),
+]
 
 class YogaDataset(Dataset):
     KEYPOINTS_NUM = 33
-    def __init__(self, csv_file, need_img=False, img_size=(220, 144)):
+    _THICKNESS_POSE_LANDMARKS = 2
+
+    def __init__(self, csv_file, need_img=False, img_size=(220, 144), color_landmark=False):
         super().__init__()
         self.df = pd.read_csv(csv_file)
         self.le = preprocessing.LabelEncoder()
@@ -24,23 +63,30 @@ class YogaDataset(Dataset):
         self.img_size = img_size
         self.class_num = len(self.le.classes_)
         self.transform = transforms.Compose([
-            transforms.RandomRotation(10,),
             transforms.RandomHorizontalFlip(0.5),
-            # transforms.RandomResizedCrop(size=(img_size[1], img_size[0])),
+            transforms.RandomAffine(degrees=30, translate=(0.2, 0.2)),
+            transforms.RandomResizedCrop(size=(img_size[1], img_size[0]), scale=(0.8, 1.0)),
             transforms.ToTensor()
         ])
-    
+        self.color_landmark = color_landmark
+        self.cache = dict()
+
     def __len__(self):
         return len(self.df)
 
     def __getitem__(self, index):
+        cached_item = self.cache.get(index, None)
+        if cached_item is not None:
+            cached_item["skeleton"] = self.transform(Image.fromarray(cached_item["skeleton"]))
+            return cached_item
+
         row = self.df.iloc[index]
         item_result = {}
         if self.need_img:
             img = Image.open(row["img"])
             item_result["img"] = img.resize(self.img_size)
-        
-        #load keypoints
+
+        # load keypoints
         with open(row["anno"], "r") as f:
             anno = json.load(f)
         keypoints = []
@@ -59,11 +105,14 @@ class YogaDataset(Dataset):
 
         # skeleton
         skeleton = self.convertKeypoints2Img(item_result["keypoints"], self.img_size)
-        item_result["skeleton"] = self.transform(Image.fromarray(skeleton))
+        item_result["skeleton"] = skeleton
+        self.cache[index] = item_result
+
+        item_result["skeleton"] = self.transform(Image.fromarray(item_result["skeleton"]))
+
         return item_result
-    
-    @staticmethod
-    def convertKeypoints2Img(keypoints, img_size=(220, 144)):
+
+    def convertKeypoints2Img(self, keypoints, img_size=(220, 144)):
         landmark_list = edict({
             "landmark": []
         })
@@ -75,19 +124,33 @@ class YogaDataset(Dataset):
             })
             landmark_list.landmark.append(mark)
         canvas = np.zeros((img_size[1], img_size[0], 3), dtype=np.uint8)
+        drawing_spec = YogaDataset.get_default_pose_landmarks_style() \
+            if self.color_landmark else mp_drawing_styles.get_default_pose_landmarks_style()
         mp_drawing.draw_landmarks(
-            canvas, 
+            canvas,
             landmark_list,
             mp_pose.POSE_CONNECTIONS,
-            landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style()
+            landmark_drawing_spec=drawing_spec
         )
         return canvas
+
+    @staticmethod
+    def get_default_pose_landmarks_style():
+        """Returns the default pose landmarks drawing style.
+
+        Returns:
+            A mapping from each pose landmark to its default drawing spec.
+        """
+        pose_landmark_style = {}
+        for landmark in mp_pose.PoseLandmark:
+            pose_landmark_style[landmark] = DrawingSpec(
+                color=KEYPOINTS_COLOR_PANEL[landmark.value], thickness=YogaDataset._THICKNESS_POSE_LANDMARKS)
+        return pose_landmark_style
 
 
 class YogaDatasetTriple(YogaDataset):
     def __init__(self, csv_file, need_img=False, img_size=(220, 144)):
         super().__init__(csv_file, need_img, img_size)
-    
 
     def __getitem__(self, index):
         base_item = super().__getitem__(index)
@@ -109,6 +172,3 @@ class YogaDatasetTriple(YogaDataset):
             "diff": diff_class_item,
         }
         return result
-        
-
-    
