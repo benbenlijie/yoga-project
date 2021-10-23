@@ -84,7 +84,7 @@ class Trainer(BaseTrainer):
             if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                 log.update({"lr": self.optimizer.param_groups[0]['lr']})
 
-                self.lr_scheduler.step(loss)
+                self.lr_scheduler.step(val_log["loss"])
             else:
                 log.update({"lr": self.lr_scheduler.get_last_lr()[0]})
                 self.lr_scheduler.step()

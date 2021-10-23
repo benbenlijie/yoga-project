@@ -100,7 +100,8 @@ def main(config):
     logger.info(log)
 
     print(confusion_m)
-    print(report)
+    with open("confusion_matrix.txt", "w") as f:
+        f.write(report)
 
 
 if __name__ == '__main__':

@@ -1,25 +1,23 @@
 {
-    "name": "Yoga_Score_Net_newbase_weight_decay",
+    "name": "Yoga_Score_Net_filtered_data",
     "n_gpu": 1,
+
     "arch": {
         "type": "MobileNetModel",
         "args": {
-            "feature_dim": 128,
-            "num_classes": 107,
-            "easy_margin": false,
+            "feature_dim": 128, 
+            "num_classes": 40, 
+            "easy_margin": true, 
             "m": 0.1,
             "arc_margin": true
         }
     },
     "data_loader": {
         "type": "YogaDataLoader",
-        "args": {
-            "data_csv_file": "data_loader/dataset1.csv",
+        "args":{
+            "data_csv_file": "data_loader/dataset1_filtered.csv",
             "need_img": false,
-            "img_size": [
-                244,
-                244
-            ],
+            "img_size": [244, 244],
             "color_landmark": true,
             "batch_size": 256,
             "shuffle": true,
@@ -29,32 +27,34 @@
     },
     "optimizer": {
         "type": "Adam",
-        "args": {
-            "lr": 0.001,
-            "weight_decay": 0.01,
+        "args":{
+            "lr": 0.005,
+            "weight_decay": 0.001,
             "amsgrad": true
         }
     },
     "loss": "crossentropy_loss",
     "weight_loss_lambda": 0.0,
     "metrics": [
-        "accuracy",
-        "top_k_acc"
+        "accuracy", "top_k_acc"
     ],
     "lr_scheduler": {
-        "type": "ReduceLROnPlateau",
+        "type": "MultiStepLR",
         "args": {
-            "factor": 0.3,
-            "patience": 5
+            "milestones": [50, 100, 120],
+            "gamma": 0.1
         }
     },
     "trainer": {
-        "epochs": 150,
+        "epochs": 250,
+
         "save_dir": "/hpctmp/e0703350/projects/yoga-saved/",
         "save_period": 1,
         "verbosity": 2,
+        
         "monitor": "min val_loss",
         "early_stop": 0,
+
         "tensorboard": true
     }
 }
