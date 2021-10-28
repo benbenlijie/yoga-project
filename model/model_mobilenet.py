@@ -8,10 +8,15 @@ from torchvision.models.mobilenetv3 import mobilenet_v3_large, mobilenet_v3_smal
 
 class MobileNetModel(BaseModel):
     def __init__(self, feature_dim, num_classes, s=30.0, m=0.5,
-                 easy_margin=False, arc_margin=True):
+                 easy_margin=False, arc_margin=True, large_model=True):
         super().__init__()
-        backbone = mobilenet_v3_large(True)
-        dim_feature_backbone = 960
+        if large_model:
+            backbone = mobilenet_v3_large(True)
+            dim_feature_backbone = 960
+        else:
+            backbone = mobilenet_v3_small(False)
+            dim_feature_backbone = 576
+
         self.feature_dim = feature_dim
         self.num_classes = num_classes
         self.arc_margin = arc_margin

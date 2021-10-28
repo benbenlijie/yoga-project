@@ -30,16 +30,7 @@ def getBodyKeypoints(images, save_folder):
     with mp_pose.Pose(
             static_image_mode=True, min_detection_confidence=0.5, model_complexity=2) as pose:
         for name, image in images.items():
-            # Convert the BGR image to RGB and process it with MediaPipe Pose.
-            try:
-                results = pose.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-            except:
-                continue
 
-            # Print nose landmark.
-            image_hight, image_width, _ = image.shape
-            if not results.pose_landmarks:
-                continue
             if image is None:
                 continue
             name = replaceSuffix(name, ".txt")
@@ -47,7 +38,21 @@ def getBodyKeypoints(images, save_folder):
             name = os.path.join(save_folder, name)
             if os.path.exists(name):
                 continue
-            save_landmark_result(results, name)
+
+            print('\r', name, end="")
+            # Convert the BGR image to RGB and process it with MediaPipe Pose.
+            try:
+                results = pose.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+            except:
+                continue
+            # Print nose landmark.
+
+            if not results.pose_landmarks:
+                continue
+            try:
+                save_landmark_result(results, name)
+            except:
+                pass
 
 
 def prepareAnnos(dataset_folder):
@@ -62,7 +67,7 @@ def prepareAnnos(dataset_folder):
         image_list.extend(image_folder.glob(f"*/{suffix}"))
     images = {}
     for image_path in image_list:
-        img = cv2.imread(str(image_path))
+        img = cv2.imread(str(image_path), 0)
         if img is not None:
             images[str(image_path)] = img
     print("image amount:", len(images))
@@ -96,7 +101,7 @@ def loopFolder(image_folder, annotation_folder, labels=None, anno_suffix=".txt",
 
 if __name__ == '__main__':
     dataset_root = Path("/hpctmp/e0703350_yoga/datas/")
-    prepareAnnos(str(dataset_root / "datasets_2"))
+    # prepareAnnos(str(dataset_root / "datasets_2"))
 
     # read select labels
     select_labels_file = "filtered_labels.txt"
@@ -107,9 +112,10 @@ if __name__ == '__main__':
     anno_folder = "yoga_anno"
     merged_data = []
     for sub_folder in dataset_root.iterdir():
-        data_info_list = loopFolder(sub_folder / image_folder, sub_folder / anno_folder, labels=select_labels)
-        merged_data.extend(data_info_list)
-        df = pd.DataFrame(data_info_list)
-        df.to_csv(str(sub_folder / (sub_folder.name + "_filtered.csv")), index=False)
+        if sub_folder.is_dir():
+            data_info_list = loopFolder(sub_folder / image_folder, sub_folder / anno_folder, labels=select_labels)
+            merged_data.extend(data_info_list)
+            df = pd.DataFrame(data_info_list)
+            df.to_csv(str(sub_folder / (sub_folder.name + "_filtered.csv")), index=False)
     df = pd.DataFrame(merged_data)
     df.to_csv(str(dataset_root / "merged_data.csv"), index=False)

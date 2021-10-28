@@ -77,7 +77,8 @@ class YogaDataset(Dataset):
     def __getitem__(self, index):
         cached_item = self.cache.get(index, None)
         if cached_item is not None:
-            cached_item["skeleton"] = self.transform(Image.fromarray(cached_item["skeleton"]))
+            skeleton = self.convertKeypoints2Img(cached_item["keypoints"], self.img_size)
+            cached_item["skeleton"] = self.transform(Image.fromarray(skeleton))
             return cached_item
 
         row = self.df.iloc[index]
@@ -112,14 +113,14 @@ class YogaDataset(Dataset):
 
         return item_result
 
-    def convertKeypoints2Img(self, keypoints, img_size=(220, 144)):
+    def convertKeypoints2Img(self, keypoints, img_size=(220, 144), sigma=0.05):
         landmark_list = edict({
             "landmark": []
         })
         for [x, y] in keypoints:
             mark = edict({
-                "x": x,
-                "y": y,
+                "x": x + np.random.normal(scale=sigma),
+                "y": y + np.random.normal(scale=sigma),
                 "HasField": lambda a: False
             })
             landmark_list.landmark.append(mark)
