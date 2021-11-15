@@ -22,24 +22,19 @@ def main(config):
     # setup data_loader instances
     module_args = dict(config["data_loader"]['args'])
     module_args.update({
+        "batch_size": 512,
         "shuffle": False,
         "validation_split": 0.0,
         "training": False
     })
-    data_loader = getattr(module_data, config['data_loader']['type'])(**module_args)
-
-    # data_loader = getattr(module_data, config['data_loader']['type'])(
-    #     config['data_loader']['args']['data_dir'],
-    #     batch_size=512,
-    #     shuffle=False,
-    #     validation_split=0.0,
-    #     training=False,
-    #     num_workers=2
-    # )
+    data_loader = getattr(module_data, "YogaDataTripleLoader")(**module_args)
 
     # build model architecture
     model = config.init_obj('arch', module_arch)
     logger.info(model)
+
+    cfg_trainer = config['trainer']
+    use_keypoints = cfg_trainer.get('use_keypoints', False)
 
     # get function handles of loss and metrics
     loss_fn = getattr(module_loss, config['loss'])
@@ -68,24 +63,29 @@ def main(config):
             for cat in categories:
                 items = data_items[cat]
 
-                data = items["skeleton"].to(device)
-
-                target = items["class"].to(device)
+                if use_keypoints:
+                    data = items["keypoints"].to(device)
+                else:
+                    data = items["skeleton"].to(device)
 
                 features = model.encode(data)
                 encoded_features[cat] = features
             # calculate the cosine between base and same:
             distance_bs = torch.mm(encoded_features["base"], encoded_features["same"].T)
+            distance_bs = torch.diagonal(distance_bs, 0)
+            # print("distance_bs.shape", distance_bs.shape)
 
             # calculate the cosine between base and diff:
             distance_bd = torch.mm(encoded_features["base"], encoded_features["diff"].T)
+            distance_bd = torch.diagonal(distance_bd, 0)
 
             distance_diff = distance_bs - distance_bd
             # if distance_diff < 0: correct
-            pos = torch.sum(torch.where(distance_diff < 0, 1, 0))
-            neg = torch.sum(torch.where(distance_diff > 0, 1, 0))
+            pos = torch.sum(torch.where(distance_diff > 0, 1, 0))
+            neg = torch.sum(torch.where(distance_diff < 0, 1, 0))
             pos_amount += pos
             neg_amount += neg
+
     print(pos_amount, neg_amount)
     print("precision: ", pos_amount * 1.0 / (pos_amount + neg_amount))
 

@@ -1,8 +1,9 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torchvision.utils import make_grid
 from base import BaseTrainer
-from utils import inf_loop, MetricTracker
+from utils import inf_loop, MetricTracker, getAdj
 import pysnooper
 
 
@@ -32,6 +33,12 @@ class Trainer(BaseTrainer):
         self.train_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
         self.valid_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
 
+        cfg_trainer = config['trainer']
+        self.use_keypoints = cfg_trainer.get('use_keypoints', False)
+        self.use_adj = cfg_trainer.get("use_adj", False)
+        if self.use_adj:
+            self.adj = getAdj()
+
     # @pysnooper.snoop(depth=2, watch=("output.shape", "target.shape"))
     def _train_epoch(self, epoch):
         """
@@ -43,15 +50,21 @@ class Trainer(BaseTrainer):
         self.model.train()
         self.train_metrics.reset()
         for batch_idx, data_items in enumerate(self.data_loader):
-            inputs = data_items["skeleton"].to(self.device)
+            if self.use_keypoints:
+                inputs = data_items["keypoints"].to(self.device)
+            else:
+                inputs = data_items["skeleton"].to(self.device)
 
             target = data_items["class"].to(self.device)
 
             self.optimizer.zero_grad()
-            output = self.model(inputs, target)
+            if self.use_adj:
+                output = self.model(inputs, self.adj)
+            else:
+                output = self.model(inputs, target)
             loss = self.criterion(output, target)
             try:
-                lam = self.config.config.get("weight_loss_lambda", 1.0)
+                lam = self.config.config.get("weight_loss_lambda", 0.0)
                 loss += self.model.getWeightLoss() * lam
             finally:
                 pass
@@ -101,11 +114,17 @@ class Trainer(BaseTrainer):
         self.valid_metrics.reset()
         with torch.no_grad():
             for batch_idx, data_items in enumerate(self.valid_data_loader):
-                inputs = data_items["skeleton"].to(self.device)
+                if self.use_keypoints:
+                    inputs = data_items["keypoints"].to(self.device)
+                else:
+                    inputs = data_items["skeleton"].to(self.device)
 
                 target = data_items["class"].to(self.device)
 
-                output = self.model(inputs, target)
+                if self.use_adj:
+                    output = self.model(inputs, self.adj)
+                else:
+                    output = self.model(inputs, target)
                 loss = self.criterion(output, target)
 
                 self.writer.set_step((epoch - 1) * len(self.valid_data_loader) + batch_idx, 'valid')
@@ -129,3 +148,113 @@ class Trainer(BaseTrainer):
             current = batch_idx
             total = self.len_epoch
         return base.format(current, total, 100.0 * current / total)
+
+
+class ScoreTrainer(Trainer):
+    def __init__(self, model, criterion, metric_ftns, optimizer, config, device,
+                 data_loader, valid_data_loader=None, lr_scheduler=None, len_epoch=None):
+        super().__init__(model, criterion, metric_ftns, optimizer, config, device,
+                         data_loader, valid_data_loader, lr_scheduler, len_epoch)
+        cfg_trainer = config['trainer']
+        self.margin = cfg_trainer.get('margin', 0.0)
+        self.optimizer = optimizer
+
+    def _train_epoch(self, epoch):
+        """
+        Training logic for an epoch
+
+        :param epoch: Integer, current training epoch.
+        :return: A log that contains average loss and metric in this epoch.
+        """
+        self.model.train()
+        self.train_metrics.reset()
+        # self.logger.debug(f"check dataloader: {self.data_loader.dataset.df.columns}")
+        # self.logger.debug(f"check dataloader: {self.data_loader.dataset.raw_anno}")
+        # self.logger.debug(f"check dataset single record: {self.data_loader.dataset[0]}")
+        for batch_idx, data_items in enumerate(self.data_loader):
+            features_list = []
+            predict_class = []
+            for key in range(3):
+                keypoints = data_items[key].to(self.device)
+                features_list.append(self.model.encode(keypoints))
+                # self.logger.debug(f"check keypoints{key}: {keypoints.shape} {torch.max(keypoints), torch.min(keypoints)} \n{keypoints[0][:, :5]}")
+                
+
+                # output = self.model(keypoints)
+                # output = F.softmax(output, dim=1)
+                # predict = torch.argmax(output, dim=1)
+                # predict_class.append(predict)
+
+            distance_hm = -torch.log(torch.diagonal(torch.mm(features_list[0], features_list[1].T), 0))
+            distance_ml = -torch.log(torch.diagonal(torch.mm(features_list[1], features_list[2].T), 0))
+            distance_hl = -torch.log(torch.diagonal(torch.mm(features_list[0], features_list[2].T), 0))
+            # self.logger.debug(f"distance_hm info: {distance_hm.shape}, {distance_hm[0]}")
+            # self.logger.debug(f"distance_ml info: {distance_ml.shape}, {distance_ml[0]}")
+            
+            
+            loss = self.criterion(distance_hm, distance_ml, distance_hl, self.margin)
+            loss.backward()
+            self.optimizer.step()
+
+            self.writer.set_step((epoch - 1) * self.len_epoch + batch_idx)
+            self.train_metrics.update('loss', loss.item())
+
+            if self.lr_scheduler is not None:
+                self.writer.add_scalar("lr", self.optimizer.param_groups[0]['lr'])
+
+            if batch_idx % self.log_step == 0:
+                self.logger.debug('Train Epoch: {} {} Loss: {:.6f}'.format(
+                    epoch,
+                    self._progress(batch_idx),
+                    loss.item()))
+                # self.writer.add_image('input', make_grid(inputs[:24].cpu(), nrow=8, normalize=True))
+
+            if batch_idx == self.len_epoch:
+                break
+        log = self.train_metrics.result()
+
+        if self.do_validation:
+            val_log = self._valid_epoch(epoch)
+            log.update(**{'val_' + k: v for k, v in val_log.items()})
+
+        if self.lr_scheduler is not None:
+            if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                log.update({"lr": self.optimizer.param_groups[0]['lr']})
+
+                self.lr_scheduler.step(val_log["loss"])
+            else:
+                log.update({"lr": self.lr_scheduler.get_last_lr()[0]})
+                self.lr_scheduler.step()
+        return log
+
+    def _valid_epoch(self, epoch):
+        """
+        Validate after training an epoch
+
+        :param epoch: Integer, current training epoch.
+        :return: A log that contains information about validation
+        """
+        self.model.eval()
+        self.valid_metrics.reset()
+        with torch.no_grad():
+            for batch_idx, data_items in enumerate(self.valid_data_loader):
+                features_list = []
+                for key in range(3):
+                    keypoints = data_items[key].to(self.device)
+                    features_list.append(self.model.encode(keypoints))
+
+                distance_hm = torch.diagonal(torch.mm(features_list[0], features_list[1].T), 0)
+                distance_ml = torch.diagonal(torch.mm(features_list[1], features_list[2].T), 0)
+                distance_hl = torch.diagonal(torch.mm(features_list[0], features_list[2].T), 0)
+
+                loss = self.criterion(distance_hm, distance_ml, distance_hl, self.margin)
+
+                self.writer.set_step((epoch - 1) * len(self.valid_data_loader) + batch_idx, 'valid')
+                self.valid_metrics.update('loss', loss.item())
+            # self.writer.add_image('input', make_grid(inputs.cpu(), nrow=8, normalize=True))
+
+        # add histogram of model parameters to the tensorboard
+        # print("len named_parameters: ", len(list(self.model.named_parameters())))
+        for name, p in self.model.wantedNamedParameters():  # print("p.shape:", name, p.shape)
+            self.writer.add_histogram(name, p, bins='auto')
+        return self.valid_metrics.result()

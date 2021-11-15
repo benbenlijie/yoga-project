@@ -1,4 +1,5 @@
 from torch.utils.data import Dataset
+import torch
 import pandas as pd
 from sklearn import preprocessing
 import json
@@ -7,7 +8,9 @@ import numpy as np
 from torchvision import transforms
 from easydict import EasyDict as edict
 import mediapipe as mp
+from pathlib import Path
 from mediapipe.python.solutions.drawing_utils import DrawingSpec
+import scipy.sparse as sp
 
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
@@ -49,11 +52,27 @@ KEYPOINTS_COLOR_PANEL = [
     (34,139,34),
 ]
 
+
+def addGaussian(keypoints, scale=0.02):
+    return (keypoints + np.random.normal(loc=0.0, scale=scale, size=keypoints.shape)).astype(np.float32)
+
+
+def loadKeypoints(anno_file, keypoint_features):
+    with open(anno_file, "r") as f:
+        anno = json.load(f)
+    keypoints = []
+    for point_id in range(YogaDataset.KEYPOINTS_NUM):
+        point = anno[str(point_id)]
+        keypoints.append([point[key] for key in keypoint_features])
+    return np.transpose(np.array(keypoints, dtype=np.float32), [1, 0])
+
+
 class YogaDataset(Dataset):
     KEYPOINTS_NUM = 33
     _THICKNESS_POSE_LANDMARKS = 2
 
-    def __init__(self, csv_file, need_img=False, img_size=(220, 144), color_landmark=False):
+    def __init__(self, csv_file, need_img=False, img_size=(220, 144), color_landmark=False,
+                 keypoint_features=["x", "y"], gaussian_scale=0.02, only_points=False):
         super().__init__()
         self.df = pd.read_csv(csv_file)
         self.le = preprocessing.LabelEncoder()
@@ -70,6 +89,9 @@ class YogaDataset(Dataset):
         ])
         self.color_landmark = color_landmark
         self.cache = dict()
+        self.keypoint_features = keypoint_features
+        self.gaussion_scale = gaussian_scale
+        self.only_points = only_points
 
     def __len__(self):
         return len(self.df)
@@ -77,9 +99,14 @@ class YogaDataset(Dataset):
     def __getitem__(self, index):
         cached_item = self.cache.get(index, None)
         if cached_item is not None:
-            skeleton = self.convertKeypoints2Img(cached_item["keypoints"], self.img_size)
-            cached_item["skeleton"] = self.transform(Image.fromarray(skeleton))
-            return cached_item
+            item_result = cached_item.copy()
+            item_result["keypoints"] = addGaussian(cached_item["keypoints"], self.gaussion_scale)
+            item_result["keypoints"] = self.randomHorizontalFlip(item_result["keypoints"])
+            if not self.only_points:
+                skeleton = self.convertKeypoints2Img(item_result["keypoints"], self.img_size, 0)
+                item_result["skeleton"] = self.transform(Image.fromarray(skeleton))
+
+            return item_result
 
         row = self.df.iloc[index]
         item_result = {}
@@ -87,14 +114,15 @@ class YogaDataset(Dataset):
             img = Image.open(row["img"])
             item_result["img"] = img.resize(self.img_size)
 
-        # load keypoints
-        with open(row["anno"], "r") as f:
-            anno = json.load(f)
-        keypoints = []
-        for point_id in range(self.KEYPOINTS_NUM):
-            point = anno[str(point_id)]
-            keypoints.append([point["x"], point["y"]])
-        item_result["keypoints"] = np.array(keypoints, dtype=np.float)
+        # # load keypoints
+        # with open(row["anno"], "r") as f:
+        #     anno = json.load(f)
+        # keypoints = []
+        # for point_id in range(self.KEYPOINTS_NUM):
+        #     point = anno[str(point_id)]
+        #     keypoints.append([point[key] for key in self.keypoint_features])
+        # item_result["keypoints"] = np.transpose(np.array(keypoints, dtype=np.float32), [1, 0])
+        item_result["keypoints"] = loadKeypoints(row["anno"], self.keypoint_features)
 
         # load class
         item_result["class"] = row["class"]
@@ -104,20 +132,20 @@ class YogaDataset(Dataset):
         one_hot[row["class"]] = 1
         item_result["one_hot"] = one_hot
 
-        # skeleton
-        skeleton = self.convertKeypoints2Img(item_result["keypoints"], self.img_size)
-        item_result["skeleton"] = skeleton
-        self.cache[index] = item_result
-
-        item_result["skeleton"] = self.transform(Image.fromarray(item_result["skeleton"]))
-
+        if not self.only_points:
+            # skeleton
+            skeleton = self.convertKeypoints2Img(item_result["keypoints"], self.img_size)
+            item_result["skeleton"] = skeleton
+            self.cache[index] = item_result.copy()
+            item_result["skeleton"] = self.transform(Image.fromarray(item_result["skeleton"]))
+        item_result["keypoints"] = addGaussian(item_result["keypoints"], self.gaussion_scale)
         return item_result
 
     def convertKeypoints2Img(self, keypoints, img_size=(220, 144), sigma=0.05):
         landmark_list = edict({
             "landmark": []
         })
-        for [x, y] in keypoints:
+        for [x, y] in np.transpose(keypoints, [1, 0]):
             mark = edict({
                 "x": x + np.random.normal(scale=sigma),
                 "y": y + np.random.normal(scale=sigma),
@@ -136,6 +164,13 @@ class YogaDataset(Dataset):
         return canvas
 
     @staticmethod
+    def randomHorizontalFlip(keypoints, rate=0.5):
+        if np.random.rand() < rate:
+            return 1 - keypoints
+        else:
+            return keypoints
+
+    @staticmethod
     def get_default_pose_landmarks_style():
         """Returns the default pose landmarks drawing style.
 
@@ -150,8 +185,8 @@ class YogaDataset(Dataset):
 
 
 class YogaDatasetTriple(YogaDataset):
-    def __init__(self, csv_file, need_img=False, img_size=(220, 144)):
-        super().__init__(csv_file, need_img, img_size)
+    def __init__(self, csv_file, need_img=False, img_size=(220, 144), **kwargs):
+        super().__init__(csv_file, need_img, img_size, **kwargs)
 
     def __getitem__(self, index):
         base_item = super().__getitem__(index)
@@ -173,3 +208,41 @@ class YogaDatasetTriple(YogaDataset):
             "diff": diff_class_item,
         }
         return result
+
+
+class Score3ItemDataset(Dataset):
+    COL_PATTERNS = ["keys_{}", "score_{}"]
+    RAW_COL_PATTERNS = "keys_{}_anno"
+    NUM_ITEMS = 3
+
+    def __init__(self, score_csv, raw_anno=False, keypoint_features=["x", "y"], gaussian_scale=0.02, **kwargs):
+        super().__init__()
+        self.file = score_csv
+        self.gaussian_scale = gaussian_scale
+        self.df = pd.read_csv(score_csv)
+        self.raw_anno = raw_anno
+        self.keypoint_features = keypoint_features
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        result = {}
+        for i in range(self.NUM_ITEMS):
+            if self.raw_anno is False:
+                keys_col_name = self.COL_PATTERNS[0].format(i)
+                keys = np.frombuffer(eval(row[keys_col_name]), dtype=np.float32).reshape((-1, 2))
+                keys = np.transpose(keys, (1, 0))
+            else:
+                keys_col_name = self.RAW_COL_PATTERNS.format(i)
+                keys = loadKeypoints(row[keys_col_name], self.keypoint_features)
+                
+            score_col_name = self.COL_PATTERNS[1].format(i)
+            score = row[score_col_name]
+            result[score] = torch.from_numpy(addGaussian(np.array(keys), scale=self.gaussian_scale))
+        return result
+
+
+
+

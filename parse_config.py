@@ -9,7 +9,7 @@ from utils import read_json, write_json
 
 
 class ConfigParser:
-    def __init__(self, config, resume=None, modification=None, run_id=None):
+    def __init__(self, config, args, resume=None, modification=None, run_id=None, ):
         """
         class to parse configuration json file. Handles hyperparameters for training, initializations of modules, checkpoint saving
         and logging module.
@@ -21,6 +21,7 @@ class ConfigParser:
         # load config file and apply modification
         self._config = _update_config(config, modification)
         self.resume = resume
+        self._cmdarg = args
 
         # set save_dir where trained model and log will be saved.
         save_dir = Path(self.config['trainer']['save_dir'])
@@ -40,7 +41,7 @@ class ConfigParser:
         write_json(self.config, self.save_dir / 'config.json')
 
         # configure logging module
-        setup_logging(self.log_dir)
+        setup_logging(self.log_dir, default_level=logging.DEBUG)
         self.log_levels = {
             0: logging.WARNING,
             1: logging.INFO,
@@ -75,7 +76,8 @@ class ConfigParser:
 
         # parse custom cli options into dictionary
         modification = {opt.target : getattr(args, _get_opt_name(opt.flags)) for opt in options}
-        return cls(config, resume, modification)
+
+        return cls(config, args=vars(args), resume=resume, modification=modification)
 
     def init_obj(self, name, module, *args, **kwargs):
         """
@@ -109,7 +111,14 @@ class ConfigParser:
 
     def __getitem__(self, name):
         """Access items like ordinary dict."""
-        return self.config[name]
+        try:
+            val = self.cmdarg.get(name, None)
+        except:
+            return self.config[name]
+        if val is None:
+            return self.config[name]
+        else:
+            return val
 
     def get_logger(self, name, verbosity=2):
         msg_verbosity = 'verbosity option {} is invalid. Valid options are {}.'.format(verbosity, self.log_levels.keys())
@@ -130,6 +139,10 @@ class ConfigParser:
     @property
     def log_dir(self):
         return self._log_dir
+
+    @property
+    def cmdarg(self):
+        return self._cmdarg
 
 # helper functions to update config dict with custom cli options
 def _update_config(config, modification):

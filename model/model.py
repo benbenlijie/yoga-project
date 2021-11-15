@@ -4,6 +4,9 @@ from base import BaseModel
 
 # import model defines
 from .model_mobilenet import MobileNetModel, ArcMarginProduct
+from .model_1dconv import Yoga1DCnnModel
+from .model_gcn import GCNModel
+
 
 class MnistModel(BaseModel):
     def __init__(self, num_classes=10):
@@ -22,3 +25,4 @@ class MnistModel(BaseModel):
         x = F.dropout(x, training=self.training)
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
+

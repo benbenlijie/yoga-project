@@ -129,6 +129,7 @@ class BaseTrainer:
 
         :param resume_path: Checkpoint path to be resumed
         """
+
         resume_path = str(resume_path)
         self.logger.info("Loading checkpoint: {} ...".format(resume_path))
         checkpoint = torch.load(resume_path)
@@ -146,6 +147,7 @@ class BaseTrainer:
             self.logger.warning("Warning: Optimizer type given in config file is different from that of checkpoint. "
                                 "Optimizer parameters not being resumed.")
         else:
-            self.optimizer.load_state_dict(checkpoint['optimizer'])
+            if self.config["optimizer"].get("reset", False) is False:
+                self.optimizer.load_state_dict(checkpoint['optimizer'])
 
         self.logger.info("Checkpoint loaded. Resume training from epoch {}".format(self.start_epoch))

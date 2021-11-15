@@ -7,9 +7,8 @@ import model.loss as module_loss
 import model.metric as module_metric
 import model.model as module_arch
 from parse_config import ConfigParser
-from trainer import Trainer
+from trainer import Trainer, ScoreTrainer
 from utils import prepare_device
-
 
 # fix random seeds for reproducibility
 SEED = 123
@@ -17,6 +16,7 @@ torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 np.random.seed(SEED)
+
 
 def main(config):
     logger = config.get_logger('train')
@@ -44,13 +44,20 @@ def main(config):
     optimizer = config.init_obj('optimizer', torch.optim, trainable_params)
     lr_scheduler = config.init_obj('lr_scheduler', torch.optim.lr_scheduler, optimizer)
 
-    trainer = Trainer(model, criterion, metrics, optimizer,
-                      config=config,
-                      device=device,
-                      data_loader=data_loader,
-                      valid_data_loader=valid_data_loader,
-                      lr_scheduler=lr_scheduler)
-
+    if config["score"] is False:
+        trainer = Trainer(model, criterion, metrics, optimizer,
+                          config=config,
+                          device=device,
+                          data_loader=data_loader,
+                          valid_data_loader=valid_data_loader,
+                          lr_scheduler=lr_scheduler)
+    else:
+        trainer = ScoreTrainer(model, criterion, metrics, optimizer,
+                               config=config,
+                               device=device,
+                               data_loader=data_loader,
+                               valid_data_loader=valid_data_loader,
+                               lr_scheduler=lr_scheduler)
     trainer.train()
 
 
@@ -62,6 +69,7 @@ if __name__ == '__main__':
                       help='path to latest checkpoint (default: None)')
     args.add_argument('-d', '--device', default=None, type=str,
                       help='indices of GPUs to enable (default: all)')
+    args.add_argument("-s", "--score", default=False, action="store_true")
 
     # custom cli options to modify configuration from default values given in json file.
     CustomArgs = collections.namedtuple('CustomArgs', 'flags type target')

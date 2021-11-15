@@ -42,10 +42,17 @@ def getBodyKeypoints(images, save_folder):
             print('\r', name, end="")
             # Convert the BGR image to RGB and process it with MediaPipe Pose.
             try:
-                results = pose.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-            except:
+                if len(image.shape) < 3:
+                    image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+                else:
+                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                print(image.shape)
+                results = pose.process(image)
+            except Exception as e:
+                print(e)
                 continue
             # Print nose landmark.
+            print("results", results.pose_landmarks)
 
             if not results.pose_landmarks:
                 continue
@@ -85,6 +92,7 @@ def loopFolder(image_folder, annotation_folder, labels=None, anno_suffix=".txt",
             folder_name = sub_anno_folder.name
             if labels is not None and folder_name not in labels:
                 continue
+            print("operating label", folder_name)
             sub_img_folder = image_folder / folder_name
             for anno_file in sub_anno_folder.glob("*" + anno_suffix):
                 img_files = list(sub_img_folder.glob(anno_file.stem + img_suffix))
@@ -104,15 +112,16 @@ if __name__ == '__main__':
     # prepareAnnos(str(dataset_root / "datasets_2"))
 
     # read select labels
-    select_labels_file = "filtered_labels.txt"
-    with open(select_labels_file, "r") as f:
+    select_labels_file = dataset_root / "filtered_labels.txt"
+    with open(str(select_labels_file), "r") as f:
         select_labels = [l.strip() for l in f.readlines()]
+    print(f"number of filtered classes: {len(select_labels)}")
 
     image_folder = "yoga_images"
     anno_folder = "yoga_anno"
     merged_data = []
     for sub_folder in dataset_root.iterdir():
-        if sub_folder.is_dir():
+        if sub_folder.is_dir() and "dataset" in sub_folder.name:
             data_info_list = loopFolder(sub_folder / image_folder, sub_folder / anno_folder, labels=select_labels)
             merged_data.extend(data_info_list)
             df = pd.DataFrame(data_info_list)

@@ -1,5 +1,5 @@
 {
-    "name": "Yoga_Score_Net_filtered_data",
+    "name": "Yoga_Score_Net_filtered_data_small",
     "n_gpu": 1,
 
     "arch": {
@@ -8,7 +8,7 @@
             "feature_dim": 128, 
             "num_classes": 40, 
             "easy_margin": true, 
-            "m": 0.1,
+            "m": 0.15,
             "arc_margin": true,
             "large_model": false
         }

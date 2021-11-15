@@ -18,3 +18,11 @@ def arc_margin_loss(output, target):
     loss_shape = loss.shape
     loss = torch.mean(loss)
     return loss
+
+
+def triple_loss(hm, ml, hl, margin):
+    return torch.mean(torch.clamp(hm-hl+margin, min=0)+torch.clamp(ml-hl+margin, min=0))
+
+def triple_loss_half(hm, ml, hl, margin):
+    return torch.mean(torch.clamp(hm-hl+margin, min=0))
+

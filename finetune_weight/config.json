@@ -1,0 +1,69 @@
+{
+    "name": "Yoga_Score_score_finetune_noeasy_p2_margin02_gau02",
+    "n_gpu": 1,
+    "arch": {
+        "type": "Yoga1DCnnModel",
+        "args": {
+            "hidden_layers": [
+                16,
+                32,
+                32,
+                32
+            ],
+            "num_classes": 45,
+            "easy_margin": false,
+            "m": 0.1,
+            "arc_margin": true,
+            "kernel_size": 15,
+            "pool": 2
+        }
+    },
+    "data_loader": {
+        "type": "Score3ItemDataLoader",
+        "args": {
+            "score_csv": "data_loader/score_data_raw.csv",
+            "raw_anno": true,
+            "gaussian_scale": 0.2,
+            "batch_size": 256,
+            "shuffle": true,
+            "validation_split": 0.3,
+            "num_workers": 10
+        }
+    },
+    "optimizer": {
+        "type": "Adam",
+        "args": {
+            "lr": 0.0005,
+            "weight_decay": 0.1,
+            "amsgrad": true
+        },
+        "reset": true
+    },
+    "loss": "triple_loss",
+    "weight_loss_lambda": 0.0,
+    "metrics": [
+        "accuracy",
+        "top_k_acc"
+    ],
+    "lr_scheduler": {
+        "type": "MultiStepLR",
+        "args": {
+            "milestones": [
+                200
+                
+            ],
+            "gamma": 0.3
+        }
+    },
+    "trainer": {
+        "margin": 0.2,
+        "epochs": 100,
+        "save_dir": "/hpctmp/e0703350/projects/yoga-saved/",
+        "save_period": 1,
+        "verbosity": 2,
+        "monitor": "min val_loss",
+        "early_stop": 0,
+        "tensorboard": true,
+        "use_keypoints": true
+    }
+}

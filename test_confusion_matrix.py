@@ -40,6 +40,8 @@ def main(config):
     # build model architecture
     model = config.init_obj('arch', module_arch)
     logger.info(model)
+    cfg_trainer = config['trainer']
+    use_keypoints = cfg_trainer.get('use_keypoints', False)
 
     # get function handles of loss and metrics
     loss_fn = getattr(module_loss, config['loss'])
@@ -63,7 +65,10 @@ def main(config):
     targets, predicts = [], []
     with torch.no_grad():
         for i, data_items in enumerate(tqdm(data_loader)):
-            data = data_items["skeleton"].to(device)
+            if use_keypoints:
+                data = data_items["keypoints"].to(device)
+            else:
+                data = data_items["skeleton"].to(device)
 
             target = data_items["class"].to(device)
 
