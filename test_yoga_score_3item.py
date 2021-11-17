@@ -77,13 +77,17 @@ def main(config):
             distance_ml = torch.diagonal(torch.mm(features_list[1], features_list[2].T), 0)
             distance_hl = torch.diagonal(torch.mm(features_list[0], features_list[2].T), 0)
 
-            pos = torch.sum(torch.where((distance_hl < distance_hm) & (distance_hl < distance_ml), 1, 0))
+            pos = torch.sum(torch.where((distance_hl < distance_hm), 1, 0))
+            pos_amount += pos
+            pos = torch.sum(torch.where((distance_hl < distance_ml), 1, 0))
             pos_amount += pos
 
-            pos = torch.sum(
-                torch.where((predict_class[0] == predict_class[1]) & (predict_class[1] == predict_class[2]), 1, 0))
+            pos = torch.sum(torch.where((predict_class[0] == predict_class[1]), 1, 0))
             class_pos_amount += pos
-            total_amount += distance_hl.shape[0]
+            pos = torch.sum(torch.where((predict_class[1] == predict_class[2]), 1, 0))
+            class_pos_amount += pos
+            
+            total_amount += distance_hl.shape[0] * 2
 
     print(pos_amount)
     print("precision: ", pos_amount * 1.0 / total_amount)

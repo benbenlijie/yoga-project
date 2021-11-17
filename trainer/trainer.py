@@ -198,6 +198,8 @@ class ScoreTrainer(Trainer):
 
             self.writer.set_step((epoch - 1) * self.len_epoch + batch_idx)
             self.train_metrics.update('loss', loss.item())
+            for met in self.metric_ftns:
+                self.train_metrics.update(met.__name__, met(distance_hm, distance_ml, distance_hl))
 
             if self.lr_scheduler is not None:
                 self.writer.add_scalar("lr", self.optimizer.param_groups[0]['lr'])
@@ -243,18 +245,20 @@ class ScoreTrainer(Trainer):
                     keypoints = data_items[key].to(self.device)
                     features_list.append(self.model.encode(keypoints))
 
-                distance_hm = torch.diagonal(torch.mm(features_list[0], features_list[1].T), 0)
-                distance_ml = torch.diagonal(torch.mm(features_list[1], features_list[2].T), 0)
-                distance_hl = torch.diagonal(torch.mm(features_list[0], features_list[2].T), 0)
+                distance_hm = -torch.log(torch.diagonal(torch.mm(features_list[0], features_list[1].T), 0))
+                distance_ml = -torch.log(torch.diagonal(torch.mm(features_list[1], features_list[2].T), 0))
+                distance_hl = -torch.log(torch.diagonal(torch.mm(features_list[0], features_list[2].T), 0))
 
                 loss = self.criterion(distance_hm, distance_ml, distance_hl, self.margin)
 
                 self.writer.set_step((epoch - 1) * len(self.valid_data_loader) + batch_idx, 'valid')
                 self.valid_metrics.update('loss', loss.item())
+                for met in self.metric_ftns:
+                    self.valid_metrics.update(met.__name__, met(distance_hm, distance_ml, distance_hl))
             # self.writer.add_image('input', make_grid(inputs.cpu(), nrow=8, normalize=True))
 
         # add histogram of model parameters to the tensorboard
         # print("len named_parameters: ", len(list(self.model.named_parameters())))
-        for name, p in self.model.wantedNamedParameters():  # print("p.shape:", name, p.shape)
-            self.writer.add_histogram(name, p, bins='auto')
+        # for name, p in self.model.wantedNamedParameters():  # print("p.shape:", name, p.shape)
+        #     self.writer.add_histogram(name, p, bins='auto')
         return self.valid_metrics.result()

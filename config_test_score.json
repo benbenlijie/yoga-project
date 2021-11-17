@@ -14,7 +14,7 @@
         }
     },
     "data_loader": {
-        "type": "YogaDataLoader",
+        "type": "YogaDataTripleLoader",
         "args":{
             "data_csv_file": "data_loader/dataset1.csv",
             "need_img": false,

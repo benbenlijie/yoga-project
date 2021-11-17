@@ -166,7 +166,8 @@ class YogaDataset(Dataset):
     @staticmethod
     def randomHorizontalFlip(keypoints, rate=0.5):
         if np.random.rand() < rate:
-            return 1 - keypoints
+            keypoints[0, :] = 1 - keypoints[0, :]
+            return keypoints
         else:
             return keypoints
 
@@ -213,6 +214,7 @@ class YogaDatasetTriple(YogaDataset):
 class Score3ItemDataset(Dataset):
     COL_PATTERNS = ["keys_{}", "score_{}"]
     RAW_COL_PATTERNS = "keys_{}_anno"
+    WEIGHT_COL = "weight"
     NUM_ITEMS = 3
 
     def __init__(self, score_csv, raw_anno=False, keypoint_features=["x", "y"], gaussian_scale=0.02, **kwargs):

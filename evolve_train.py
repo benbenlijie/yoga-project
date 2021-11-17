@@ -85,7 +85,7 @@ if __name__ == '__main__':
     # margin target="trainer;margin"
     for gaussian_scale in np.arange(0.1, 0.2, 0.02):
         gaussian_scale = round(gaussian_scale, 2)
-        for margin in np.arange(1.0, 3.0, 0.5):
+        for margin in np.arange(0.1, 0.4, 0.05):
             margin = round(margin, 1)
             modification = {
                 "data_loader;args;gaussian_scale": gaussian_scale,

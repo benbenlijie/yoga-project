@@ -24,7 +24,7 @@ def load_model(resume="model.pt", device=None):
     checkpoint = torch.load(resume, map_location=device)
     state_dict = checkpoint['state_dict']
     model.load_state_dict(state_dict)
-
+    torch.save({"state_dict": state_dict}, "final.pt")
     
     model = model.to(device)
     model.eval()

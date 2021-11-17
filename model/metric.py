@@ -22,3 +22,9 @@ def top_k_acc(output, target, k=3):
         for i in range(k):
             correct += torch.sum(pred[:, i] == target).item()
     return correct / len(target)
+
+
+def triplet_acc(hm, ml, hl):
+    with torch.no_grad():
+        bs = hm.shape[0]
+        return torch.sum((hm < hl).long()) * 1.0 / bs

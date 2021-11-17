@@ -11,6 +11,7 @@ import model.model as module_arch
 from parse_config import ConfigParser
 from sklearn.metrics import confusion_matrix, accuracy_score, classification_report
 import logging
+import h5py
 
 
 def main(config):
@@ -22,7 +23,7 @@ def main(config):
     # setup data_loader instances
     module_args = dict(config["data_loader"]['args'])
     module_args.update({
-        "batch_size": 512,
+        "batch_size": 1,
         "shuffle": False,
         "validation_split": 0.0,
         "training": False
@@ -54,6 +55,8 @@ def main(config):
 
     total_loss = 0.0
     total_metrics = torch.zeros(len(metric_fns))
+    f = h5py.File("point_features.hdf5", "w")
+    feature_buffer = {}
 
     pos_amount, neg_amount = 0, 0
     with torch.no_grad():
@@ -70,6 +73,12 @@ def main(config):
 
                 features = model.encode(data)
                 encoded_features[cat] = features
+                
+                label = str(items["class"][0].item())
+                feature_list = feature_buffer.get(label, [])
+                feature_list.append(features[0].cpu().numpy())
+                feature_buffer[label] = feature_list
+
             # calculate the cosine between base and same:
             distance_bs = torch.mm(encoded_features["base"], encoded_features["same"].T)
             distance_bs = torch.diagonal(distance_bs, 0)
@@ -85,6 +94,12 @@ def main(config):
             neg = torch.sum(torch.where(distance_diff < 0, 1, 0))
             pos_amount += pos
             neg_amount += neg
+
+    for label, feature_list in feature_buffer.items():
+        shape = (len(feature_list), *(feature_list[0].shape))
+        
+        f[label] = np.array(feature_list)
+    f.close()
 
     print(pos_amount, neg_amount)
     print("precision: ", pos_amount * 1.0 / (pos_amount + neg_amount))
